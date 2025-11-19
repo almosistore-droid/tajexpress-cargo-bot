@@ -5,102 +5,194 @@ from flask import Flask, request
 from telebot.apihelper import ApiTelegramException
 
 # --- 1. КОНФИГУРАЦИЯ ПРИЛОЖЕНИЯ И ТОКЕНА ---
-# ВНИМАНИЕ: ЖЕСТКОЕ КОДИРОВАНИЕ ТОКЕНА (НЕ РЕКОМЕНДУЕТСЯ В ПРОДАКШЕНЕ!)
-# Это сделано для обхода критической проблемы с чтением переменной окружения на Render.
+# Токен прописан жестко для гарантии инициализации.
 TOKEN = "8596817855:AAFQibbgPc-JnGjT5zyBLpR1Bvjd-B8Bupc"
 
-# Инициализация Flask-приложения (КРИТИЧЕСКИ ВАЖНО: ПЕРЕД @app.route)
-# Flask должен быть готов принимать Webhook
 app = Flask(__name__) 
-
-# Инициализация бота
 bot = telebot.TeleBot(TOKEN, use_class_middlewares=True)
 
-# --- 2. КОНФИГУРАЦИЯ WEBHOOK ---
-# На Render URL сервиса будет другой, но маршрут остается /TOKEN
-# WEBHOOK_ROUTE должен использовать TOKEN, который уже определен.
-WEBHOOK_ROUTE = '/' + TOKEN
+# --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ СОСТОЯНИЯ (Для многошаговых сценариев) ---
+# ВНИМАНИЕ: В ПРОДАКШЕНЕ НА GUNICORN/FLASK ЭТОТ СЛОВАРЬ user_data 
+# МОЖЕТ ТЕРЯТЬ ДАННЫЕ. ИСПОЛЬЗУЙТЕ ЕГО ТОЛЬКО ДЛЯ ТЕСТИРОВАНИЯ.
+user_data = {} 
 
-# Примечание: Render автоматически обнаружит порт (обычно $PORT или 10000)
-# и перенаправит трафик на него.
+# ID группы или чата, куда будут отправляться заявки на доставку. 
+# КРИТИЧЕСКИ ВАЖНО: ЗАМЕНИТЕ ЭТО ЗНАЧЕНИЕ НА РЕАЛЬНЫЙ ID ВАШЕЙ ГРУППЫ!
+DELIVERY_GROUP_ID = "-5077729823" # <-- Обновлено на ваше значение!
+
+# --- 2. КОНФИГУРАЦИЯ WEBHOOK ---
+WEBHOOK_ROUTE = '/' + TOKEN
 
 @app.route(WEBHOOK_ROUTE, methods=['POST'])
 def webhook():
     """Обрабатывает входящие обновления Telegram через Webhook."""
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        
-        # CRITICAL DEBUG: Print the type of update received
-        if update.message:
-            print(f"WEBHOOK DEBUG: Received message from {update.message.chat.id}. Text: {update.message.text}")
-        elif update.callback_query:
-            print(f"WEBHOOK DEBUG: Received callback query from {update.callback_query.from_user.id}")
-        else:
-            print(f"WEBHOOK DEBUG: Received other update type: {update.update_id}")
+        try:
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            
+            # CRITICAL DEBUG: Print the type of update received
+            if update.message:
+                print(f"WEBHOOK DEBUG: Received message from {update.message.chat.id}. Text: {update.message.text}")
+            else:
+                print(f"WEBHOOK DEBUG: Received other update type: {update.update_id}")
 
-        bot.process_new_updates([update])
-        return 'ok', 200
+            bot.process_new_updates([update])
+            return 'ok', 200
+        except Exception as e:
+            # Логируем ошибку, если Flask-часть падает
+            print(f"CRITICAL FLASK ERROR: Failed to process update: {e}")
+            return 'error', 500
     else:
         return 'Not JSON', 403
 
-def set_webhook(webhook_url):
-    """Устанавливает или удаляет Webhook. Вызывается после получения URL от Render."""
-    try:
-        # Сначала удаляем старый Webhook 
-        bot.delete_webhook(drop_pending_updates=True)
-        print("WEBHOOK: Старый Webhook удален.")
+# --- 3. ОБРАБОТЧИКИ БОТА (с новыми названиями кнопок и логикой) ---
 
-        # Устанавливаем новый Webhook, используя URL, предоставленный Render
-        bot.set_webhook(url=webhook_url + TOKEN)
-        print(f"WEBHOOK: Новый Webhook установлен на: {webhook_url + TOKEN}")
-    except ApiTelegramException as e:
-        print(f"WEBHOOK Ошибка Telegram API: {e}")
-    except Exception as e:
-        print(f"WEBHOOK Неизвестная ошибка: {e}")
-
-# --- 3. ОБРАБОТЧИКИ БОТА (Логика остается той же) ---
+# --- НОВЫЕ ТЕКСТЫ КНОПОК ---
+BUTTON_GET_ADDRESS = "🏠 🇨🇳 Гирифтани адрес ва код" # Новый, заменяет старый CHINA_ADDR
+BUTTON_DELIVERY = "🚚 Доставка" # Новый, заменяет старый алиас TRACKING
+BUTTON_CALC = "📦 Нархнома"
+BUTTON_TRACK = "🔍 Проверка трек-кода"
+BUTTON_CONTACT = "📞 Контакты"
+BUTTON_TAJIK_ADDR = "🇹🇯 Адрес Душанбе"
+BUTTON_PROHIBITED = "Молхои манъшуда"
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     """Отправляет приветственное сообщение и основное меню."""
-    print(f"HANDLER LOG: Received /start from chat {message.chat.id}") # DEBUG PRINT
+    print(f"HANDLER LOG: Handler for /start started from chat {message.chat.id}")
     try:
-        markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-        btn1 = types.KeyboardButton("Рассчитать стоимость")
-        btn2 = types.KeyboardButton("Отследить груз")
-        btn3 = types.KeyboardButton("Связаться с нами")
-        markup.add(btn1, btn2, btn3)
+        # Устанавливаем 2 кнопки в ряд для лучшего отображения
+        markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+        
+        # Первая строка: Заказ адреса и Доставка (Новые, ключевые)
+        markup.row(types.KeyboardButton(BUTTON_GET_ADDRESS), types.KeyboardButton(BUTTON_DELIVERY))
+        
+        # Вторая строка: Расчет и Отслеживание
+        markup.row(types.KeyboardButton(BUTTON_CALC), types.KeyboardButton(BUTTON_TRACK))
+        
+        # Третья строка: Адреса и Запрещенные товары
+        markup.row(types.KeyboardButton(BUTTON_TAJIK_ADDR), types.KeyboardButton(BUTTON_PROHIBITED))
+        
+        # Четвертая строка: Контакты
+        markup.row(types.KeyboardButton(BUTTON_CONTACT))
+
 
         bot.send_message(
             message.chat.id,
-            "Привет! Я бот компании TAJ-EXPRESS. Как я могу вам помочь сегодня?",
+            "Добро пожаловать в TAJ-EXPRESS! 🚚\nВыберите пункт меню:", # Текст пользователя
             reply_markup=markup
         )
-        print(f"HANDLER LOG: Successfully sent welcome message to {message.chat.id}") # DEBUG PRINT
+        print(f"HANDLER LOG: Successfully sent welcome message to {message.chat.id}")
     except ApiTelegramException as e:
-        # Эта ошибка покажет нам, почему Telegram не принимает сообщение (например, неверный токен или блокировка)
         print(f"HANDLER ERROR: Failed to send welcome message to {message.chat.id}. Telegram API Error: {e}") 
     except Exception as e:
         print(f"HANDLER ERROR: Unknown error in send_welcome: {e}")
 
-@bot.message_handler(commands=['test'])
-def send_test_message(message):
-    """Тестовая команда для проверки работоспособности."""
-    print(f"HANDLER LOG: Received /test from chat {message.chat.id}") # DEBUG PRINT
-    try:
-        bot.send_message(message.chat.id, "Бот работает. Токен получен, Webhook активен.")
-    except ApiTelegramException as e:
-        print(f"HANDLER ERROR: Failed to send test message. Telegram API Error: {e}") 
+
+# -----------------------------------------------------
+# НОВЫЙ ФУНКЦИОНАЛ: Гирифтани адрес ва код
+# -----------------------------------------------------
+@bot.message_handler(func=lambda message: message.text == BUTTON_GET_ADDRESS)
+def get_full_address(message):
+    """Начинает процесс получения полного адреса склада в Китае."""
+    print(f"HANDLER LOG: Matched button {BUTTON_GET_ADDRESS}")
+    chat_id = message.chat.id
+    msg = bot.send_message(chat_id, "Введите ваше имя:")
+    bot.register_next_step_handler(msg, get_name_for_address)
+
+def get_name_for_address(message):
+    """Получает имя пользователя для адреса."""
+    chat_id = message.chat.id
+    user_data[chat_id] = {"name": message.text}
+    msg = bot.send_message(chat_id, "Введите ваш номер телефона:")
+    bot.register_next_step_handler(msg, get_phone_for_address)
+
+def get_phone_for_address(message):
+    """Получает номер телефона пользователя для адреса."""
+    chat_id = message.chat.id
+    user_data[chat_id]["phone"] = message.text
+    send_address(chat_id)
+
+def send_address(chat_id):
+    """Формирует и отправляет полный адрес склада."""
+    name = user_data[chat_id]["name"]
+    phone = user_data[chat_id]["phone"]
+    # Ваш предоставленный формат адреса
+    final_address = (
+        f"Amin 17590820846 浙江省金华市义乌市 "
+        f"福田三小区80栋二单元305室 {name} {phone}"
+    )
+    bot.send_message(chat_id, final_address)
+    send_welcome(bot.get_chat(chat_id)) # Возвращаем меню
+
+# -----------------------------------------------------
+# НОВЫЙ ФУНКЦИОНАЛ: Доставка — отправка в группу
+# -----------------------------------------------------
+@bot.message_handler(func=lambda message: message.text == BUTTON_DELIVERY)
+def start_delivery(message):
+    """Начинает процесс оформления заявки на доставку."""
+    print(f"HANDLER LOG: Matched button {BUTTON_DELIVERY}")
+    msg = bot.send_message(message.chat.id, "Введите ваше имя для заявки на доставку:")
+    bot.register_next_step_handler(msg, get_delivery_name)
+
+def get_delivery_name(message):
+    """Получает имя для заявки."""
+    chat_id = message.chat.id
+    user_data[chat_id] = {"delivery_name": message.text}
+    msg = bot.send_message(chat_id, "Введите ваш адрес для доставки:")
+    bot.register_next_step_handler(msg, get_delivery_address)
+
+def get_delivery_address(message):
+    """Получает адрес доставки, отправляет в группу и подтверждает пользователю."""
+    chat_id = message.chat.id
+    user_data[chat_id]["delivery_address"] = message.text
     
-@bot.message_handler(func=lambda message: message.text == "Рассчитать стоимость")
+    delivery_name = user_data[chat_id]["delivery_name"]
+    delivery_address = user_data[chat_id]["delivery_address"]
+    
+    # Сообщение для группы
+    delivery_text = (
+        "📦 *НОВАЯ ЗАЯВКА НА ДОСТАВКУ*\n\n"
+        f"👤 Имя: {delivery_name}\n"
+        f"📍 Адрес: {delivery_address}\n"
+        f"От пользователя: @{message.from_user.username or message.from_user.id}"
+    )
+    
+    try:
+        # Отправка заявки в группу
+        bot.send_message(DELIVERY_GROUP_ID, delivery_text, parse_mode="Markdown")
+        
+        # Подтверждение пользователю
+        bot.send_message(chat_id, "Ваша заявка на доставку отправлена! ✅")
+        
+        # Информация о сроках доставки (ОБНОВЛЕНО)
+        bot.send_message(
+            chat_id,
+            "Доставка ⏳ Мӯҳлати доставка аз *18 то 25 рӯз*, "
+            "вале мо одатан *пеш аз муҳлат* мерасонем 🚀✨",
+            parse_mode="Markdown"
+        )
+    except ApiTelegramException as e:
+         bot.send_message(chat_id, f"Ошибка отправки заявки: проверьте ID группы (`{DELIVERY_GROUP_ID}`) и права бота в ней. {e}")
+         print(f"DELIVERY ERROR: Failed to send message to group {DELIVERY_GROUP_ID}. Error: {e}")
+    
+    send_welcome(message) # Возвращаем меню
+
+# -----------------------------------------------------
+# СУЩЕСТВУЮЩИЙ ФУНКЦИОНАЛ (Обновлен: удален алиас "🚚 Доставка")
+# -----------------------------------------------------
+
+@bot.message_handler(func=lambda message: message.text == BUTTON_CALC)
 def request_calculation(message):
     """Начинает процесс расчета стоимости."""
+    print(f"HANDLER LOG: Matched button {BUTTON_CALC}")
     msg = bot.send_message(message.chat.id, "Пожалуйста, введите вес вашего груза в кг:")
     bot.register_next_step_handler(msg, process_weight_step)
 
 def process_weight_step(message):
     """Обрабатывает введенный вес."""
+    # ... (логика расчета остается без изменений) ...
     try:
         weight = float(message.text.replace(',', '.').strip())
         if weight <= 0:
@@ -142,9 +234,11 @@ def process_arrival_city_step(message, weight, departure_city):
     bot.send_message(message.chat.id, response, parse_mode='Markdown')
     send_welcome(message) # Возвращаем пользователя в главное меню
 
-@bot.message_handler(func=lambda message: message.text == "Отследить груз")
+# Изменено: Удален алиас '🚚 Доставка'
+@bot.message_handler(func=lambda message: message.text == BUTTON_TRACK)
 def track_cargo(message):
     """Запрашивает номер для отслеживания."""
+    print(f"HANDLER LOG: Matched button {BUTTON_TRACK}")
     msg = bot.send_message(message.chat.id, "Пожалуйста, введите номер для отслеживания вашего груза (например, TAJ12345):")
     bot.register_next_step_handler(msg, process_tracking_number)
 
@@ -164,9 +258,10 @@ def process_tracking_number(message):
     bot.send_message(message.chat.id, f"**Статус груза {tracking_number}:**\n{status}", parse_mode='Markdown')
     send_welcome(message)
 
-@bot.message_handler(func=lambda message: message.text == "Связаться с нами")
+@bot.message_handler(func=lambda message: message.text == BUTTON_CONTACT)
 def contact_us(message):
     """Предоставляет контактную информацию."""
+    print(f"HANDLER LOG: Matched button {BUTTON_CONTACT}")
     contact_info = (
         "📞 **Наши контакты:**\n\n"
         "Служба поддержки: `+7 495 123 45 67`\n"
@@ -175,6 +270,41 @@ def contact_us(message):
     )
     bot.send_message(message.chat.id, contact_info, parse_mode='Markdown')
     send_welcome(message)
+
+# Удален старый handler BUTTON_CHINA_ADDR, так как он заменен на BUTTON_GET_ADDRESS
+
+@bot.message_handler(func=lambda message: message.text == BUTTON_TAJIK_ADDR)
+def send_dushanbe_address(message):
+    """Предоставляет адрес офиса в Душанбе."""
+    print(f"HANDLER LOG: Matched button {BUTTON_TAJIK_ADDR}")
+    address_info = (
+        "🇹🇯 **Адрес офиса в Душанбе:**\n\n"
+        "**Компания:** TAJ-EXPRESS\n"
+        "**Адрес:** пр. Рудаки 123, Бизнес-центр 'Азия'\n"
+        "**Телефон:** +992 900 12 34 56"
+    )
+    bot.send_message(message.chat.id, address_info, parse_mode='Markdown')
+    send_welcome(message)
+
+@bot.message_handler(func=lambda message: message.text == BUTTON_PROHIBITED)
+def send_prohibited_list(message):
+    """Предоставляет список запрещенных к перевозке товаров."""
+    print(f"HANDLER LOG: Matched button {BUTTON_PROHIBITED}")
+    prohibited_info = (
+        "🚫 **Молҳои манъшуда (Запрещенные товары):**\n\n"
+        "Список товаров, запрещенных к перевозке:\n"
+        "1. Оружие и боеприпасы.\n"
+        "2. Взрывчатые, легковоспламеняющиеся и радиоактивные вещества.\n"
+        "3. Наркотические средства, психотропные вещества.\n"
+        "4. Яды и сильнодействующие токсичные вещества.\n"
+        "5. Деньги, банковские карты, ценные бумаги.\n"
+        "6. Изделия и вещества, которые могут представлять опасность для других грузов или работников.\n"
+        "\n"
+        "_Для получения полного и актуального списка, пожалуйста, свяжитесь с нашим менеджером._"
+    )
+    bot.send_message(message.chat.id, prohibited_info, parse_mode='Markdown')
+    send_welcome(message)
+
 
 @bot.message_handler(func=lambda message: True)
 def echo_all(message):
