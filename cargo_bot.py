@@ -15,7 +15,8 @@ WEBHOOK_ROUTE = '/' + TOKEN
 WEBHOOK_URL = WEBHOOK_HOST + WEBHOOK_ROUTE
 
 app = Flask(__name__) 
-bot = telebot.TeleBot(TOKEN, use_class_middlewares=True)
+# --- ИСПРАВЛЕНО: Удален use_class_middlewares=True для стандартной работы диспетчера ---
+bot = telebot.TeleBot(TOKEN) 
 
 # --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ СОСТОЯНИЯ (Для многошаговых сценариев) ---
 # ВНИМАНИЕ: В ПРОДАКШЕНЕ НА GUNICORN/FLASK ЭТОТ СЛОВАРЬ user_data 
@@ -65,6 +66,7 @@ def webhook():
             bot.process_new_updates([update])
             
             # --- НОВАЯ КРИТИЧЕСКАЯ ТОЧКА ЛОГИРОВАНИЯ ---
+            # Эта строка означает, что Flask успешно обработал запрос и ответил 200 OK.
             print("WEBHOOK DEBUG: Successfully processed update via telebot.")
             
             return 'ok', 200
@@ -89,6 +91,7 @@ BUTTON_PROHIBITED = "Молхои манъшуда"
 def send_welcome(message):
     """Отправляет приветственное сообщение и основное меню."""
     chat_id = message.chat.id
+    # --- ЭТОТ ЛОГ ПОДТВЕРДИТ, ЧТО ОБРАБОТЧИК ЗАПУЩЕН ---
     print(f"HANDLER LOG: Handler for /start started from chat {chat_id}")
     try:
         markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
@@ -98,7 +101,6 @@ def send_welcome(message):
         markup.row(types.KeyboardButton(BUTTON_TAJIK_ADDR), types.KeyboardButton(BUTTON_PROHIBITED))
         markup.row(types.KeyboardButton(BUTTON_CONTACT))
 
-        # --- НОВАЯ КРИТИЧЕСКАЯ ТОЧКА: ЛОГ ПЕРЕД ОТПРАВКОЙ ---
         print(f"HANDLER LOG: Attempting to send message with buttons to {chat_id}...") 
 
         bot.send_message(
@@ -108,7 +110,6 @@ def send_welcome(message):
         )
         print(f"HANDLER LOG: Successfully sent welcome message to {chat_id}")
     except ApiTelegramException as e:
-        # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: ЛОГИРУЕМ ВСЕ ДЕТАЛИ ОШИБКИ API ---
         error_details = getattr(e, 'result', 'No result object').json if hasattr(getattr(e, 'result', None), 'json') else str(e)
         print(f"HANDLER CRITICAL ERROR: ApiTelegramException for {chat_id}. Details: {error_details}")
     except Exception as e:
