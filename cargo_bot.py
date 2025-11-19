@@ -5,12 +5,9 @@ from flask import Flask, request
 from telebot.apihelper import ApiTelegramException
 
 # --- 1. КОНФИГУРАЦИЯ ПРИЛОЖЕНИЯ И ТОКЕНА ---
-# Токен читается из переменной окружения (установлен на Render)
-TOKEN = os.environ.get("TOKEN")
-
-if not TOKEN:
-    # В среде Render это должно быть видно в логах, если токен не установлен
-    print("FATAL ERROR: TELEGRAM TOKEN IS NOT SET IN ENVIRONMENT!")
+# ВНИМАНИЕ: ЖЕСТКОЕ КОДИРОВАНИЕ ТОКЕНА (НЕ РЕКОМЕНДУЕТСЯ В ПРОДАКШЕНЕ!)
+# Это сделано для обхода критической проблемы с чтением переменной окружения на Render.
+TOKEN = "8596817855:AAFQibbgPc-JnGjT5zyBLpR1Bvjd-B8Bupc"
 
 # Инициализация Flask-приложения (КРИТИЧЕСКИ ВАЖНО: ПЕРЕД @app.route)
 # Flask должен быть готов принимать Webhook
