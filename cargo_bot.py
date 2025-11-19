@@ -30,6 +30,15 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
+        
+        # CRITICAL DEBUG: Print the type of update received
+        if update.message:
+            print(f"WEBHOOK DEBUG: Received message from {update.message.chat.id}. Text: {update.message.text}")
+        elif update.callback_query:
+            print(f"WEBHOOK DEBUG: Received callback query from {update.callback_query.from_user.id}")
+        else:
+            print(f"WEBHOOK DEBUG: Received other update type: {update.update_id}")
+
         bot.process_new_updates([update])
         return 'ok', 200
     else:
