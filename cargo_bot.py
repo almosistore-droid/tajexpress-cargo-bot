@@ -61,7 +61,12 @@ def webhook():
             else:
                 print(f"WEBHOOK DEBUG: Received other update type: {update.update_id}")
 
+            # Обработка обновления библиотекой telebot
             bot.process_new_updates([update])
+            
+            # --- НОВАЯ КРИТИЧЕСКАЯ ТОЧКА ЛОГИРОВАНИЯ ---
+            print("WEBHOOK DEBUG: Successfully processed update via telebot.")
+            
             return 'ok', 200
         except Exception as e:
             print(f"CRITICAL FLASK ERROR: Failed to process update: {e}")
@@ -83,7 +88,8 @@ BUTTON_PROHIBITED = "Молхои манъшуда"
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     """Отправляет приветственное сообщение и основное меню."""
-    print(f"HANDLER LOG: Handler for /start started from chat {message.chat.id}")
+    chat_id = message.chat.id
+    print(f"HANDLER LOG: Handler for /start started from chat {chat_id}")
     try:
         markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
         
@@ -92,16 +98,21 @@ def send_welcome(message):
         markup.row(types.KeyboardButton(BUTTON_TAJIK_ADDR), types.KeyboardButton(BUTTON_PROHIBITED))
         markup.row(types.KeyboardButton(BUTTON_CONTACT))
 
+        # --- НОВАЯ КРИТИЧЕСКАЯ ТОЧКА: ЛОГ ПЕРЕД ОТПРАВКОЙ ---
+        print(f"HANDLER LOG: Attempting to send message with buttons to {chat_id}...") 
+
         bot.send_message(
-            message.chat.id,
+            chat_id,
             "Добро пожаловать в TAJ-EXPRESS! 🚚\nВыберите пункт меню:",
             reply_markup=markup
         )
-        print(f"HANDLER LOG: Successfully sent welcome message to {message.chat.id}")
+        print(f"HANDLER LOG: Successfully sent welcome message to {chat_id}")
     except ApiTelegramException as e:
-        print(f"HANDLER ERROR: Failed to send welcome message to {message.chat.id}. Telegram API Error: {e}") 
+        # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: ЛОГИРУЕМ ВСЕ ДЕТАЛИ ОШИБКИ API ---
+        error_details = getattr(e, 'result', 'No result object').json if hasattr(getattr(e, 'result', None), 'json') else str(e)
+        print(f"HANDLER CRITICAL ERROR: ApiTelegramException for {chat_id}. Details: {error_details}")
     except Exception as e:
-        print(f"HANDLER ERROR: Unknown error in send_welcome: {e}")
+        print(f"HANDLER CRITICAL ERROR: Unknown exception in send_welcome for {chat_id}: {e}")
 
 
 # -----------------------------------------------------
