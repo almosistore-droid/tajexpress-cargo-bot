@@ -58,23 +58,35 @@ def set_webhook(webhook_url):
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     """Отправляет приветственное сообщение и основное меню."""
-    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-    btn1 = types.KeyboardButton("Рассчитать стоимость")
-    btn2 = types.KeyboardButton("Отследить груз")
-    btn3 = types.KeyboardButton("Связаться с нами")
-    markup.add(btn1, btn2, btn3)
+    print(f"HANDLER LOG: Received /start from chat {message.chat.id}") # DEBUG PRINT
+    try:
+        markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+        btn1 = types.KeyboardButton("Рассчитать стоимость")
+        btn2 = types.KeyboardButton("Отследить груз")
+        btn3 = types.KeyboardButton("Связаться с нами")
+        markup.add(btn1, btn2, btn3)
 
-    bot.send_message(
-        message.chat.id,
-        "Привет! Я бот компании TAJ-EXPRESS. Как я могу вам помочь сегодня?",
-        reply_markup=markup
-    )
+        bot.send_message(
+            message.chat.id,
+            "Привет! Я бот компании TAJ-EXPRESS. Как я могу вам помочь сегодня?",
+            reply_markup=markup
+        )
+        print(f"HANDLER LOG: Successfully sent welcome message to {message.chat.id}") # DEBUG PRINT
+    except ApiTelegramException as e:
+        # Эта ошибка покажет нам, почему Telegram не принимает сообщение (например, неверный токен или блокировка)
+        print(f"HANDLER ERROR: Failed to send welcome message to {message.chat.id}. Telegram API Error: {e}") 
+    except Exception as e:
+        print(f"HANDLER ERROR: Unknown error in send_welcome: {e}")
 
 @bot.message_handler(commands=['test'])
 def send_test_message(message):
     """Тестовая команда для проверки работоспособности."""
-    bot.send_message(message.chat.id, "Бот работает. Токен получен, Webhook активен.")
-
+    print(f"HANDLER LOG: Received /test from chat {message.chat.id}") # DEBUG PRINT
+    try:
+        bot.send_message(message.chat.id, "Бот работает. Токен получен, Webhook активен.")
+    except ApiTelegramException as e:
+        print(f"HANDLER ERROR: Failed to send test message. Telegram API Error: {e}") 
+    
 @bot.message_handler(func=lambda message: message.text == "Рассчитать стоимость")
 def request_calculation(message):
     """Начинает процесс расчета стоимости."""
