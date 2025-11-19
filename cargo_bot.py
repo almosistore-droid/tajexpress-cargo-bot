@@ -8,6 +8,12 @@ from telebot.apihelper import ApiTelegramException
 # Токен прописан жестко для гарантии инициализации.
 TOKEN = "8596817855:AAFQibbgPc-JnGjT5zyBLpR1Bvjd-B8Bupc"
 
+# --- КОНФИГУРАЦИЯ WEBHOOK (КРИТИЧЕСКИ ВАЖНО) ---
+# 🚨 ВНИМАНИЕ: ЗАМЕНИТЕ ЭТОТ АДРЕС НА ВАШ РЕАЛЬНЫЙ АДРЕС НА RENDER/PYTHONANYWHERE!
+WEBHOOK_HOST = 'https://tajexpress-bot.onrender.com' # <-- ПРИМЕР: Замените на свой домен!
+WEBHOOK_ROUTE = '/' + TOKEN
+WEBHOOK_URL = WEBHOOK_HOST + WEBHOOK_ROUTE
+
 app = Flask(__name__) 
 bot = telebot.TeleBot(TOKEN, use_class_middlewares=True)
 
@@ -17,11 +23,27 @@ bot = telebot.TeleBot(TOKEN, use_class_middlewares=True)
 user_data = {} 
 
 # ID группы или чата, куда будут отправляться заявки на доставку. 
-# КРИТИЧЕСКИ ВАЖНО: ЗАМЕНИТЕ ЭТО ЗНАЧЕНИЕ НА РЕАЛЬНЫЙ ID ВАШЕЙ ГРУППЫ!
-DELIVERY_GROUP_ID = "-5077729823" # <-- Обновлено на ваше значение!
+DELIVERY_GROUP_ID = -5077729823
 
-# --- 2. КОНФИГУРАЦИЯ WEBHOOK ---
-WEBHOOK_ROUTE = '/' + TOKEN
+# --- 2. ФУНКЦИЯ УСТАНОВКИ WEBHOOK (Для WSGI и запуска) ---
+def set_webhook():
+    """Устанавливает или сбрасывает Webhook для бота."""
+    try:
+        # Удаляем старый Webhook, если он был
+        bot.remove_webhook()
+        # Устанавливаем новый Webhook
+        if bot.set_webhook(url=WEBHOOK_URL):
+            print(f"WEBHOOK SET: Установлен на {WEBHOOK_URL}")
+            return True
+        else:
+            print("WEBHOOK SET ERROR: Не удалось установить Webhook.")
+            return False
+    except Exception as e:
+        print(f"WEBHOOK SET CRITICAL ERROR: {e}")
+        return False
+
+
+# --- 3. КОНФИГУРАЦИЯ FLASK/WEBHOOK ---
 
 @app.route(WEBHOOK_ROUTE, methods=['POST'])
 def webhook():
@@ -31,7 +53,6 @@ def webhook():
             json_string = request.get_data().decode('utf-8')
             update = telebot.types.Update.de_json(json_string)
             
-            # CRITICAL DEBUG: Print the type of update received
             if update.message:
                 print(f"WEBHOOK DEBUG: Received message from {update.message.chat.id}. Text: {update.message.text}")
             else:
@@ -40,17 +61,16 @@ def webhook():
             bot.process_new_updates([update])
             return 'ok', 200
         except Exception as e:
-            # Логируем ошибку, если Flask-часть падает
             print(f"CRITICAL FLASK ERROR: Failed to process update: {e}")
             return 'error', 500
     else:
         return 'Not JSON', 403
 
-# --- 3. ОБРАБОТЧИКИ БОТА (с новыми названиями кнопок и логикой) ---
+# --- 4. ОБРАБОТЧИКИ БОТА (Логика) ---
 
-# --- НОВЫЕ ТЕКСТЫ КНОПОК ---
-BUTTON_GET_ADDRESS = "🏠 🇨🇳 Гирифтани адрес ва код" # Новый, заменяет старый CHINA_ADDR
-BUTTON_DELIVERY = "🚚 Доставка" # Новый, заменяет старый алиас TRACKING
+# --- ТЕКСТЫ КНОПОК ---
+BUTTON_GET_ADDRESS = "🏠 🇨🇳 Гирифтани адрес ва код"
+BUTTON_DELIVERY = "🚚 Доставка"
 BUTTON_CALC = "📦 Нархнома"
 BUTTON_TRACK = "🔍 Проверка трек-кода"
 BUTTON_CONTACT = "📞 Контакты"
@@ -62,25 +82,16 @@ def send_welcome(message):
     """Отправляет приветственное сообщение и основное меню."""
     print(f"HANDLER LOG: Handler for /start started from chat {message.chat.id}")
     try:
-        # Устанавливаем 2 кнопки в ряд для лучшего отображения
         markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
         
-        # Первая строка: Заказ адреса и Доставка (Новые, ключевые)
         markup.row(types.KeyboardButton(BUTTON_GET_ADDRESS), types.KeyboardButton(BUTTON_DELIVERY))
-        
-        # Вторая строка: Расчет и Отслеживание
         markup.row(types.KeyboardButton(BUTTON_CALC), types.KeyboardButton(BUTTON_TRACK))
-        
-        # Третья строка: Адреса и Запрещенные товары
         markup.row(types.KeyboardButton(BUTTON_TAJIK_ADDR), types.KeyboardButton(BUTTON_PROHIBITED))
-        
-        # Четвертая строка: Контакты
         markup.row(types.KeyboardButton(BUTTON_CONTACT))
-
 
         bot.send_message(
             message.chat.id,
-            "Добро пожаловать в TAJ-EXPRESS! 🚚\nВыберите пункт меню:", # Текст пользователя
+            "Добро пожаловать в TAJ-EXPRESS! 🚚\nВыберите пункт меню:",
             reply_markup=markup
         )
         print(f"HANDLER LOG: Successfully sent welcome message to {message.chat.id}")
@@ -91,7 +102,7 @@ def send_welcome(message):
 
 
 # -----------------------------------------------------
-# НОВЫЙ ФУНКЦИОНАЛ: Гирифтани адрес ва код
+# ФУНКЦИОНАЛ: Гирифтани адрес ва код
 # -----------------------------------------------------
 @bot.message_handler(func=lambda message: message.text == BUTTON_GET_ADDRESS)
 def get_full_address(message):
@@ -127,7 +138,7 @@ def send_address(chat_id):
     send_welcome(bot.get_chat(chat_id)) # Возвращаем меню
 
 # -----------------------------------------------------
-# НОВЫЙ ФУНКЦИОНАЛ: Доставка — отправка в группу
+# ФУНКЦИОНАЛ: Доставка — отправка в группу
 # -----------------------------------------------------
 @bot.message_handler(func=lambda message: message.text == BUTTON_DELIVERY)
 def start_delivery(message):
@@ -180,7 +191,7 @@ def get_delivery_address(message):
     send_welcome(message) # Возвращаем меню
 
 # -----------------------------------------------------
-# СУЩЕСТВУЮЩИЙ ФУНКЦИОНАЛ (Обновлен: удален алиас "🚚 Доставка")
+# ФУНКЦИОНАЛ: Расчет, Трекинг, Контакты, Адреса
 # -----------------------------------------------------
 
 @bot.message_handler(func=lambda message: message.text == BUTTON_CALC)
@@ -192,7 +203,6 @@ def request_calculation(message):
 
 def process_weight_step(message):
     """Обрабатывает введенный вес."""
-    # ... (логика расчета остается без изменений) ...
     try:
         weight = float(message.text.replace(',', '.').strip())
         if weight <= 0:
@@ -234,7 +244,6 @@ def process_arrival_city_step(message, weight, departure_city):
     bot.send_message(message.chat.id, response, parse_mode='Markdown')
     send_welcome(message) # Возвращаем пользователя в главное меню
 
-# Изменено: Удален алиас '🚚 Доставка'
 @bot.message_handler(func=lambda message: message.text == BUTTON_TRACK)
 def track_cargo(message):
     """Запрашивает номер для отслеживания."""
@@ -270,8 +279,6 @@ def contact_us(message):
     )
     bot.send_message(message.chat.id, contact_info, parse_mode='Markdown')
     send_welcome(message)
-
-# Удален старый handler BUTTON_CHINA_ADDR, так как он заменен на BUTTON_GET_ADDRESS
 
 @bot.message_handler(func=lambda message: message.text == BUTTON_TAJIK_ADDR)
 def send_dushanbe_address(message):
@@ -311,8 +318,9 @@ def echo_all(message):
     """Обработчик для любых других текстовых сообщений."""
     bot.reply_to(message, "Извините, я не понял эту команду. Пожалуйста, используйте кнопки меню или команду /start.")
 
-# --- 4. ЗАПУСК ДЛЯ WEBHOOK (ПРИМЕНЕНИЕ) ---
+# --- 5. ЗАПУСК ДЛЯ WEBHOOK (ПРИМЕНЕНИЕ) ---
 if __name__ == '__main__':
-    # Эта часть не выполняется на Render, так как запускает gunicorn, но оставляем для полноты.
+    # При локальном запуске (не Gunicorn/Render) устанавливаем Webhook
+    set_webhook()
     print("Приложение запущено локально (если не используется gunicorn)")
     app.run(host='0.0.0.0', port=os.environ.get("PORT", 5000))
